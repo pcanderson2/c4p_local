@@ -91,7 +91,7 @@ sudo systemctl restart docker
 Verify Docker can see the GPU:
 
 ```bash
-docker run --rm --gpus all nvidia/cuda:12.0-base-ubuntu22.04 nvidia-smi
+sudo docker run --rm --device nvidia.com/gpu=all nvidia/cuda:12.0.0-base-ubuntu22.04 nvidia-smi
 ```
 
 ---
