@@ -1,0 +1,7 @@
+instaloader==4.13.1
+gallery-dl==1.27.3
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.30
+schedule==1.2.1
+requests==2.31.0
+pyyaml==6.0.1

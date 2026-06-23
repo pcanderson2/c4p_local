@@ -1,0 +1,156 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C4P Social Media Monitor — fully self-hosted stack
+# Services: postgres | ollama | scraper | analyzer | digest | postiz
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-restart: &restart
+  restart: unless-stopped
+
+networks:
+  c4p_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  ollama_data:
+  scrape_cache:
+  postiz_uploads:
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    <<: *restart
+    networks: [c4p_net]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Ollama (DeepSeek R1) ────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    <<: *restart
+    networks: [c4p_net]
+    volumes:
+      - ollama_data:/root/.ollama
+    # Expose on host so you can also query via curl for debugging
+    ports:
+      - "11434:11434"
+    # GPU passthrough — remove deploy block if no NVIDIA GPU
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Pull the model on first boot
+  ollama-init:
+    image: ollama/ollama:latest
+    networks: [c4p_net]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ${OLLAMA_HOST}
+    entrypoint: >
+      sh -c "ollama pull ${LLM_MODEL:-deepseek-r1:14b} && echo 'Model ready'"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: "no"
+
+  # ── Scraper ─────────────────────────────────────────────────────────────────
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    <<: *restart
+    networks: [c4p_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      INSTAGRAM_TARGETS: ${INSTAGRAM_TARGETS}
+      GALLERY_DL_TARGETS: ${GALLERY_DL_TARGETS}
+      SCRAPE_INTERVAL: ${SCRAPE_INTERVAL:-21600}
+    volumes:
+      - scrape_cache:/app/cache
+
+  # ── Analyzer (LLM) ──────────────────────────────────────────────────────────
+  analyzer:
+    build:
+      context: ./analyzer
+      dockerfile: Dockerfile
+    <<: *restart
+    networks: [c4p_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      OLLAMA_HOST: ${OLLAMA_HOST}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-r1:14b}
+      AI_AUDIT_MODE: ${AI_AUDIT_MODE:-strict}
+
+  # ── Email Digest (MWF) ──────────────────────────────────────────────────────
+  digest:
+    build:
+      context: ./digest
+      dockerfile: Dockerfile
+    <<: *restart
+    networks: [c4p_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      DIGEST_FROM: ${DIGEST_FROM}
+      DIGEST_TO: ${DIGEST_TO}
+      DIGEST_CRON: ${DIGEST_CRON:-0 8 * * 1,3,5}
+
+  # ── Postiz (scheduling dashboard) ───────────────────────────────────────────
+  postiz:
+    image: ghcr.io/gitroomhq/postiz-app:latest
+    <<: *restart
+    networks: [c4p_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${POSTIZ_SECRET}
+      FRONTEND_URL: ${POSTIZ_FRONTEND_URL:-http://localhost:5000}
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:3000}
+      STORAGE_PROVIDER: local
+      UPLOAD_DIRECTORY: /uploads
+    volumes:
+      - postiz_uploads:/uploads

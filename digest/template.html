@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>C4P Trend Digest</title>
+<style>
+  body { font-family: Georgia, serif; max-width: 680px; margin: 0 auto; padding: 24px; color: #1a1a1a; background: #fff; }
+  header { border-bottom: 3px solid #1a56db; padding-bottom: 16px; margin-bottom: 24px; }
+  header h1 { font-size: 22px; color: #1a56db; margin: 0 0 4px; }
+  header p { color: #555; margin: 0; font-size: 14px; }
+  .disclaimer { background: #fef9c3; border-left: 4px solid #ca8a04; padding: 10px 14px; font-size: 13px; margin-bottom: 24px; border-radius: 2px; }
+  .trend-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 18px; margin-bottom: 18px; }
+  .trend-card h2 { font-size: 16px; color: #111827; margin: 0 0 6px; }
+  .meta { font-size: 12px; color: #6b7280; margin-bottom: 10px; }
+  .score { display: inline-block; background: #1a56db; color: #fff; font-size: 12px; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
+  .hooks, .pain { margin: 6px 0; font-size: 13px; }
+  .hooks strong, .pain strong { color: #374151; }
+  .suggestion { background: #f0fdf4; border-left: 3px solid #16a34a; padding: 8px 12px; margin-top: 10px; font-size: 13px; }
+  .suggestion strong { color: #15803d; }
+  .ai-badge { display: inline-block; background: #fef2f2; border: 1px solid #fca5a5; color: #b91c1c; font-size: 11px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; }
+  footer { border-top: 1px solid #e5e7eb; padding-top: 14px; font-size: 12px; color: #9ca3af; margin-top: 32px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Computers 4 People — Trend Digest</h1>
+  <p>{{ date }} &bull; Top {{ trends|length }} mission-aligned trends this week</p>
+</header>
+
+<div class="disclaimer">
+  <strong>AI Transparency Notice:</strong> All trend analysis and content suggestions below were generated
+  by a local AI model ({{ model }}) and are flagged for internal audit before publication.
+  Audit status for each item is shown inline.
+</div>
+
+{% for t in trends %}
+<div class="trend-card">
+  <h2>
+    #{{ loop.index }} — {{ t.source_account }} ({{ t.platform }})
+    <span class="score">Score: {{ "%.1f"|format(t.trend_score) }}/10</span>
+    <span class="ai-badge">AI&#x2713; {{ t.audit_status }}</span>
+  </h2>
+  <p class="meta">
+    <a href="{{ t.post_url }}">{{ t.post_url }}</a>
+  </p>
+
+  <div class="hooks">
+    <strong>Visual Hooks:</strong>
+    {% for h in t.visual_hooks %} &bull; {{ h }}{% endfor %}
+  </div>
+
+  <div class="pain">
+    <strong>Audience Pain Points:</strong>
+    {% for p in t.pain_points %} &bull; {{ p }}{% endfor %}
+  </div>
+
+  <p style="font-size:13px; color:#374151; margin-top:10px;">{{ t.summary }}</p>
+
+  {% if t.suggested_content %}
+  <div class="suggestion">
+    <strong>Content Idea for TEG:</strong> {{ t.suggested_content }}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+<footer>
+  This digest is sent Monday, Wednesday, and Friday. All AI-generated content requires
+  human review before scheduling. Questions? Reply to this email.
+  <br><br>
+  Computers 4 People &bull; Digital Literacy for All
+</footer>
+</body>
+</html>
