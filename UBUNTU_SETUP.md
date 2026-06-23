@@ -421,6 +421,67 @@ docker compose up -d --force-recreate scraper analyzer digest
 
 ---
 
+## Part 15 — Run unit tests with Sonar coverage
+
+### Install test dependencies:
+
+```bash
+cd ~/c4p-social
+pip install -r tests/requirements-test.txt
+```
+
+### Run all tests and generate Sonar reports:
+
+```bash
+pytest
+```
+
+This produces:
+- `coverage.xml` — line coverage report consumed by SonarQube
+- `test-results.xml` — JUnit XML report consumed by SonarQube
+
+### Run a specific test file:
+
+```bash
+pytest tests/test_analyzer.py -v
+pytest tests/test_scraper.py -v
+pytest tests/test_digest.py -v
+```
+
+### Upload to SonarCloud (free for public/private repos):
+
+1. Sign in at sonarcloud.io with your GitHub account
+2. Import `pcanderson2/c4p_local`
+3. Get your project token from SonarCloud → Project Settings → Analysis Method
+4. Run the scanner:
+
+```bash
+docker run --rm \
+  -e SONAR_TOKEN=your_sonarcloud_token \
+  -v "$(pwd):/usr/src" \
+  sonarsource/sonar-scanner-cli
+```
+
+SonarCloud will read `sonar-project.properties` and upload `coverage.xml` and `test-results.xml` automatically.
+
+### Run locally with SonarQube (fully self-hosted):
+
+```bash
+docker run -d --name sonarqube -p 9000:9000 sonarqube:community
+# wait ~60 seconds for startup, then open http://localhost:9000
+# default login: admin / admin (change on first login)
+
+# then scan the project:
+docker run --rm \
+  -e SONAR_TOKEN=your_local_token \
+  -e SONAR_HOST_URL=http://host-gateway:9000 \
+  --add-host=host-gateway:host-gateway \
+  -v "$(pwd):/usr/src" \
+  sonarsource/sonar-scanner-cli
+```
+
+---
+
 ## Useful commands
 
 ```bash
