@@ -27,8 +27,15 @@ chmod 755 "$BUILD_DIR/$PKG_NAME/DEBIAN/postrm"
 # Copy project files into /opt/c4p-social payload
 echo "[build] Copying project files..."
 rsync -a --exclude='deb/' --exclude='.git/' --exclude='__pycache__/' \
-    --exclude='*.pyc' --exclude='.env' \
+    --exclude='*.pyc' \
     "$PROJECT_DIR/" "$BUILD_DIR/$PKG_NAME/opt/c4p-social/"
+
+# Copy pre-configured .env from deb/opt/c4p-social/ if present
+if [ -f "$SCRIPT_DIR/opt/c4p-social/.env" ]; then
+    echo "[build] Bundling pre-configured .env..."
+    cp "$SCRIPT_DIR/opt/c4p-social/.env" "$BUILD_DIR/$PKG_NAME/opt/c4p-social/.env"
+    chmod 600 "$BUILD_DIR/$PKG_NAME/opt/c4p-social/.env"
+fi
 
 # Fix line endings on all text files
 find "$BUILD_DIR/$PKG_NAME/opt/c4p-social" \

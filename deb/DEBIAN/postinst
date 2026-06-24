@@ -106,11 +106,11 @@ log "Fixing line endings..."
 find "$INSTALL_DIR" -name "*.py" -o -name "*.sh" -o -name "*.sql" | xargs dos2unix -q 2>/dev/null || true
 
 # ── 6. Set up .env ────────────────────────────────────────────────────────────
-if [ ! -f "$INSTALL_DIR/.env" ]; then
-    cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
-    log "Created .env from template. Edit $INSTALL_DIR/.env before starting."
+if [ -f "$INSTALL_DIR/.env" ]; then
+    log ".env is pre-configured and ready."
 else
-    log ".env already exists — leaving it untouched."
+    cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+    log "Created .env from template — credentials not bundled, edit before starting."
 fi
 
 # ── 7. Set permissions ────────────────────────────────────────────────────────
