@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+INSTALL_DIR="/opt/c4p-social"
+
+echo "[c4p-social] Stopping services..."
+systemctl stop c4p-social 2>/dev/null || true
+
+if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
+    cd "$INSTALL_DIR"
+    docker compose down 2>/dev/null || true
+fi
+
+echo "[c4p-social] Services stopped."

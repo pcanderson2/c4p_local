@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "purge" ]; then
+    echo "[c4p-social] Purging..."
+    systemctl disable c4p-social 2>/dev/null || true
+    rm -f /etc/systemd/system/c4p-social.service
+    systemctl daemon-reload
+    echo "[c4p-social] Purge complete. Data volumes NOT removed."
+    echo "[c4p-social] To also remove all data: docker volume rm c4p-social_postgres_data c4p-social_ollama_data"
+fi

@@ -1,0 +1,198 @@
+#!/bin/bash
+set -e
+
+INSTALL_DIR="/opt/c4p-social"
+SERVICE_NAME="c4p-social"
+LOG="/var/log/c4p-social-install.log"
+
+log() { echo "[c4p-social] $1" | tee -a "$LOG"; }
+
+log "=== C4P Social Monitor post-install starting ==="
+
+# ── 1. System packages ────────────────────────────────────────────────────────
+log "Checking system packages..."
+apt-get update -qq
+for pkg in curl git dos2unix ca-certificates gnupg lsb-release; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+        log "Installing $pkg..."
+        apt-get install -y -qq "$pkg"
+    fi
+done
+
+# ── 2. Docker Engine ──────────────────────────────────────────────────────────
+if ! command -v docker &>/dev/null; then
+    log "Docker not found — installing Docker Engine..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker
+    systemctl start docker
+    log "Docker installed."
+else
+    DOCKER_VER=$(docker --version)
+    log "Docker already installed: $DOCKER_VER"
+fi
+
+# Add current non-root user to docker group if running via sudo
+if [ -n "$SUDO_USER" ]; then
+    usermod -aG docker "$SUDO_USER"
+    log "Added $SUDO_USER to docker group."
+fi
+
+# ── 3. Docker Compose v2 ──────────────────────────────────────────────────────
+if ! docker compose version &>/dev/null; then
+    log "Docker Compose plugin not found — installing..."
+    COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64"
+    mkdir -p /usr/local/lib/docker/cli-plugins
+    curl -fsSL "$COMPOSE_URL" -o /usr/local/lib/docker/cli-plugins/docker-compose
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+    log "Docker Compose installed."
+else
+    log "Docker Compose already installed: $(docker compose version)"
+fi
+
+# ── 4. NVIDIA GPU detection and setup ────────────────────────────────────────
+if lspci 2>/dev/null | grep -qi nvidia; then
+    log "NVIDIA GPU detected."
+
+    if ! command -v nvidia-smi &>/dev/null; then
+        log "Installing NVIDIA drivers..."
+        UBUNTU_VER=$(lsb_release -rs)
+        if [[ "$UBUNTU_VER" == "24.04" ]]; then
+            apt-get install -y -qq nvidia-driver-550
+        else
+            apt-get install -y -qq nvidia-driver-535
+        fi
+        log "NVIDIA drivers installed. A reboot may be required for full GPU access."
+    else
+        log "NVIDIA drivers already installed: $(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null || echo unknown)"
+    fi
+
+    if ! dpkg -s nvidia-container-toolkit &>/dev/null; then
+        log "Installing NVIDIA Container Toolkit..."
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+            | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+            | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+            | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+        apt-get update -qq
+        apt-get install -y -qq nvidia-container-toolkit
+        nvidia-ctk runtime configure --runtime=docker
+        systemctl restart docker
+        log "NVIDIA Container Toolkit installed."
+    else
+        log "NVIDIA Container Toolkit already installed."
+    fi
+else
+    log "No NVIDIA GPU detected — removing GPU block from docker-compose.yml..."
+    # Strip the deploy/resources/reservations block so Ollama starts on CPU
+    python3 - <<'PYEOF'
+import re, os
+path = "/opt/c4p-social/docker-compose.yml"
+with open(path) as f:
+    content = f.read()
+# Remove the deploy block under ollama service
+content = re.sub(
+    r'    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: \[gpu\]\n',
+    '',
+    content
+)
+with open(path, "w") as f:
+    f.write(content)
+print("GPU block removed.")
+PYEOF
+fi
+
+# ── 5. Fix line endings ───────────────────────────────────────────────────────
+log "Fixing line endings..."
+find "$INSTALL_DIR" -name "*.py" -o -name "*.sh" -o -name "*.sql" | xargs dos2unix -q 2>/dev/null || true
+
+# ── 6. Set up .env ────────────────────────────────────────────────────────────
+if [ ! -f "$INSTALL_DIR/.env" ]; then
+    cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+    log "Created .env from template. Edit $INSTALL_DIR/.env before starting."
+else
+    log ".env already exists — leaving it untouched."
+fi
+
+# ── 7. Set permissions ────────────────────────────────────────────────────────
+chmod 600 "$INSTALL_DIR/.env"
+if [ -n "$SUDO_USER" ]; then
+    chown -R "$SUDO_USER:$SUDO_USER" "$INSTALL_DIR"
+fi
+
+# ── 8. Install systemd service ────────────────────────────────────────────────
+log "Installing systemd service..."
+cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
+[Unit]
+Description=C4P Social Media Monitor
+Documentation=https://github.com/pcanderson2/c4p_local
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=300
+User=${SUDO_USER:-root}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable ${SERVICE_NAME}
+log "Systemd service installed and enabled."
+
+# ── 9. Pull Docker images and start ──────────────────────────────────────────
+log "Building Docker images and starting stack..."
+cd "$INSTALL_DIR"
+
+if [ -n "$SUDO_USER" ]; then
+    sudo -u "$SUDO_USER" docker compose up -d --build 2>&1 | tee -a "$LOG"
+else
+    docker compose up -d --build 2>&1 | tee -a "$LOG"
+fi
+
+# ── 10. Pull Ollama model ─────────────────────────────────────────────────────
+LLM_MODEL=$(grep LLM_MODEL "$INSTALL_DIR/.env" | cut -d= -f2 | tr -d ' ')
+LLM_MODEL="${LLM_MODEL:-deepseek-r1:14b}"
+log "Pulling Ollama model: $LLM_MODEL (this may take several minutes)..."
+
+# Wait for Ollama to be ready
+for i in $(seq 1 30); do
+    if curl -sf http://localhost:11434/api/tags &>/dev/null; then
+        break
+    fi
+    sleep 5
+done
+
+if [ -n "$SUDO_USER" ]; then
+    sudo -u "$SUDO_USER" docker compose exec -T ollama ollama pull "$LLM_MODEL" 2>&1 | tee -a "$LOG" || \
+        log "WARNING: Model pull failed — run 'docker compose exec ollama ollama pull $LLM_MODEL' manually."
+else
+    docker compose exec -T ollama ollama pull "$LLM_MODEL" 2>&1 | tee -a "$LOG" || \
+        log "WARNING: Model pull failed — run 'docker compose exec ollama ollama pull $LLM_MODEL' manually."
+fi
+
+# ── Done ──────────────────────────────────────────────────────────────────────
+log ""
+log "=== Installation complete ==="
+log ""
+log "  Postiz dashboard  ->  http://localhost:5000"
+log "  Ollama API        ->  http://localhost:11434"
+log "  Mailpit inbox     ->  http://localhost:8025 (if enabled)"
+log ""
+log "  Manage the stack:"
+log "    sudo systemctl start c4p-social"
+log "    sudo systemctl stop c4p-social"
+log "    docker compose -f $INSTALL_DIR/docker-compose.yml logs -f"
+log ""
+log "  Full install log: $LOG"
+log ""
+
+if lspci 2>/dev/null | grep -qi nvidia && ! command -v nvidia-smi &>/dev/null; then
+    log "ACTION REQUIRED: NVIDIA drivers were installed. Please reboot and"
+    log "then run: sudo systemctl start c4p-social"
+fi
