@@ -19,24 +19,9 @@ CREATE INDEX IF NOT EXISTS idx_scraped_posts_platform ON scraped_posts(platform)
 CREATE INDEX IF NOT EXISTS idx_scraped_posts_scraped_at ON scraped_posts(scraped_at DESC);
 
 -- ── LLM analysis results ─────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS post_analysis (
-    id              BIGSERIAL PRIMARY KEY,
-    post_id         BIGINT NOT NULL REFERENCES scraped_posts(id) ON DELETE CASCADE,
-    model_used      TEXT NOT NULL,
-    visual_hooks    TEXT[],                 -- extracted hooks for TEG audience
-    pain_points     TEXT[],                 -- audience pain points surfaced
-    trend_score     NUMERIC(4,2),           -- 0-10 mission-alignment score
-    summary         TEXT,
-    suggested_content TEXT,                 -- AI-drafted content idea
-    ai_flagged      BOOLEAN NOT NULL DEFAULT TRUE,   -- ALWAYS true — transparency audit
-    audit_status    TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected
-    audit_note      TEXT,
-    analyzed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(post_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_analysis_trend_score ON post_analysis(trend_score DESC);
-CREATE INDEX IF NOT EXISTS idx_analysis_audit_status ON post_analysis(audit_status);
+-- NOTE: post_analysis is intentionally NOT created here.
+-- Postiz (Prisma) manages this table via db push on startup.
+-- The view v_weekly_trends is created after Postiz migrations complete.
 
 -- ── Digest log ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS digest_log (
@@ -52,7 +37,7 @@ CREATE TABLE IF NOT EXISTS digest_log (
 -- ── Scheduled content queue ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS content_queue (
     id              BIGSERIAL PRIMARY KEY,
-    analysis_id     BIGINT REFERENCES post_analysis(id),
+    analysis_id     BIGINT,
     platform_target TEXT NOT NULL,
     draft_text      TEXT NOT NULL,
     ai_flagged      BOOLEAN NOT NULL DEFAULT TRUE,
@@ -61,21 +46,3 @@ CREATE TABLE IF NOT EXISTS content_queue (
     published_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- View: top mission-aligned trends this week
-CREATE OR REPLACE VIEW v_weekly_trends AS
-SELECT
-    sp.platform,
-    sp.source_account,
-    sp.post_url,
-    sp.caption,
-    pa.visual_hooks,
-    pa.pain_points,
-    pa.trend_score,
-    pa.summary,
-    pa.audit_status,
-    pa.analyzed_at
-FROM post_analysis pa
-JOIN scraped_posts sp ON sp.id = pa.post_id
-WHERE pa.analyzed_at >= NOW() - INTERVAL '7 days'
-ORDER BY pa.trend_score DESC;
