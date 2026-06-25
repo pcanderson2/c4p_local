@@ -4,8 +4,9 @@ Section: misc
 Priority: optional
 Architecture: amd64
 Maintainer: Patrick Anderson <patrickanderson@computers4people.org>
-Depends: curl, git, dos2unix
+Depends: curl, git, dos2unix, ca-certificates, gnupg, lsb-release, python3
 Description: C4P Fully Local Social Media Monitor
  Self-hosted social media monitoring and AI content generation system
  for Computers 4 People. Includes Docker, Ollama, PostgreSQL, Postiz,
  and a MWF email digest powered by DeepSeek R1.
+
