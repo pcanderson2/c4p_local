@@ -159,7 +159,7 @@ def fetch_rss(cur, limit=5):
 def fetch_all_sections():
     conn = psycopg2.connect(DATABASE_URL)
     try:
-        with conn.cursor() as cur:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return {
                 "yt_tech": fetch_section(cur, "youtube", limit=8),
                 "yt_music": fetch_section(cur, "youtube-music", limit=10),
@@ -202,7 +202,7 @@ def log_digest(html_body: str, success: bool, error: str = None):
     conn = psycopg2.connect(DATABASE_URL)
     try:
         with conn:
-            with conn.cursor() as cur:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
                     """
                     INSERT INTO digest_log (recipients, email_body, success, error_msg)
@@ -254,3 +254,4 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
