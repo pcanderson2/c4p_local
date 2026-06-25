@@ -9,7 +9,6 @@
   header { border-bottom: 3px solid #1a56db; padding-bottom: 16px; margin-bottom: 24px; }
   header h1 { font-size: 22px; color: #1a56db; margin: 0 0 4px; }
   header p { color: #555; margin: 0; font-size: 14px; }
-  .disclaimer { background: #fef9c3; border-left: 4px solid #ca8a04; padding: 10px 14px; font-size: 13px; margin-bottom: 28px; border-radius: 2px; }
   .section { margin-bottom: 36px; }
   .section-header { display: flex; align-items: center; gap: 10px; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; margin-bottom: 16px; }
   .section-header h2 { font-size: 17px; margin: 0; color: #111827; }
@@ -18,10 +17,6 @@
   .card h3 { font-size: 14px; margin: 0 0 4px; color: #111827; }
   .card h3 a { color: #1a56db; text-decoration: none; }
   .meta { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
-  .score { display: inline-block; background: #1a56db; color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 10px; margin-left: 6px; }
-  .summary { font-size: 13px; color: #374151; margin-top: 6px; }
-  .suggestion { background: #f0fdf4; border-left: 3px solid #16a34a; padding: 7px 10px; margin-top: 8px; font-size: 12px; color: #15803d; }
-  /* Music */
   .genre-block { margin-bottom: 20px; }
   .genre-label { font-size: 13px; font-weight: bold; color: #6d28d9; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
   .track { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
@@ -29,7 +24,6 @@
   .track .artist { color: #374151; font-weight: 600; }
   .track .title { color: #6b7280; }
   .track .plays { color: #9ca3af; font-size: 12px; }
-  /* Billboard */
   .chart-block { margin-bottom: 20px; }
   .chart-label { font-size: 13px; font-weight: bold; color: #b45309; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
   .chart-item { padding: 5px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
@@ -42,54 +36,9 @@
 <body>
 
 <header>
-  <h1>Computers 4 People — Trend Digest</h1>
-  <p>{{ date }} &bull; Tech, Education &amp; Music Trends</p>
+  <h1>Computers 4 People — Music Trend Digest</h1>
+  <p>{{ date }} &bull; Music Trends</p>
 </header>
-
-<div class="disclaimer">
-  <strong>AI Transparency Notice:</strong> Trend scores and content suggestions are generated
-  by a local AI model and flagged for human review before publication.
-</div>
-
-<!-- ── YouTube Tech & Education ─────────────────────────────────────── -->
-<div class="section">
-  <div class="section-header">
-    <span class="icon">📺</span>
-    <h2>YouTube — Tech &amp; Education</h2>
-  </div>
-  {% if yt_tech %}
-    {% for t in yt_tech %}
-    <div class="card">
-      <h3><a href="{{ t.post_url }}">{{ t.title or t.caption[:80] or 'Untitled' }}</a>
-        {% if t.trend_score %}<span class="score">{{ "%.1f"|format(t.trend_score) }}/10</span>{% endif %}
-      </h3>
-      <div class="meta">{{ t.source_account }}{% if t.views %} &bull; {{ "{:,}".format(t.views) }} views{% endif %}</div>
-      {% if t.summary %}<div class="summary">{{ t.summary }}</div>{% endif %}
-      {% if t.suggested_content %}<div class="suggestion"><strong>Content idea:</strong> {{ t.suggested_content }}</div>{% endif %}
-    </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty">No YouTube tech content this week yet.</div>
-  {% endif %}
-</div>
-
-<!-- ── YouTube Music Trending ──────────────────────────────────────── -->
-<div class="section">
-  <div class="section-header">
-    <span class="icon">🎵</span>
-    <h2>YouTube — Music Trending</h2>
-  </div>
-  {% if yt_music %}
-    {% for t in yt_music %}
-    <div class="card">
-      <h3><a href="{{ t.post_url }}">{{ t.title or t.caption[:80] or 'Untitled' }}</a></h3>
-      <div class="meta">{{ t.source_account }}{% if t.views %} &bull; {{ "{:,}".format(t.views) }} views{% endif %}</div>
-    </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty">No YouTube music trending this week yet.</div>
-  {% endif %}
-</div>
 
 <!-- ── Tech Creator Music ───────────────────────────────────────────── -->
 <div class="section">
@@ -115,6 +64,24 @@
     {% endfor %}
   {% else %}
     <div class="empty">No music credits found yet — the scraper is extracting from recent videos.</div>
+  {% endif %}
+</div>
+
+<!-- ── YouTube Music Trending ──────────────────────────────────────── -->
+<div class="section">
+  <div class="section-header">
+    <span class="icon">🎵</span>
+    <h2>YouTube — Music Trending</h2>
+  </div>
+  {% if yt_music %}
+    {% for t in yt_music %}
+    <div class="card">
+      <h3><a href="{{ t.post_url }}">{{ t.title or t.caption[:80] or 'Untitled' }}</a></h3>
+      <div class="meta">{{ t.source_account }}{% if t.views %} &bull; {{ "{:,}".format(t.views) }} views{% endif %}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty">No YouTube music trending this week yet.</div>
   {% endif %}
 </div>
 
@@ -161,33 +128,10 @@
   {% endif %}
 </div>
 
-<!-- ── Tech & Education News ────────────────────────────────────────── -->
-<div class="section">
-  <div class="section-header">
-    <span class="icon">📰</span>
-    <h2>Tech &amp; Education News</h2>
-  </div>
-  {% if rss %}
-    {% for t in rss %}
-    <div class="card">
-      <h3><a href="{{ t.post_url }}">{{ t.title or 'Untitled' }}</a>
-        {% if t.trend_score %}<span class="score">{{ "%.1f"|format(t.trend_score) }}/10</span>{% endif %}
-      </h3>
-      <div class="meta">{{ t.source_name or t.source_account }}</div>
-      {% if t.summary %}<div class="summary">{{ t.summary }}</div>{% endif %}
-    </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty">No RSS news this week yet.</div>
-  {% endif %}
-</div>
-
 <footer>
   This digest is sent Monday, Wednesday, and Friday.<br>
-  All AI-generated content requires human review before scheduling.<br><br>
   Computers 4 People &bull; Digital Literacy for All
 </footer>
 
 </body>
 </html>
-
