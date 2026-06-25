@@ -19,9 +19,28 @@ CREATE INDEX IF NOT EXISTS idx_scraped_posts_platform ON scraped_posts(platform)
 CREATE INDEX IF NOT EXISTS idx_scraped_posts_scraped_at ON scraped_posts(scraped_at DESC);
 
 -- ── LLM analysis results ─────────────────────────────────────────────────────
--- NOTE: post_analysis is intentionally NOT created here.
--- Postiz (Prisma) manages this table via db push on startup.
--- The view v_weekly_trends is created after Postiz migrations complete.
+-- NOTE: Postiz (Prisma) also uses this database but manages its own tables.
+-- post_analysis is our custom table — Prisma does not touch it.
+-- The v_weekly_trends view is intentionally omitted here; create it manually
+-- after the stack is running if needed.
+CREATE TABLE IF NOT EXISTS post_analysis (
+    id              BIGSERIAL PRIMARY KEY,
+    post_id         BIGINT NOT NULL REFERENCES scraped_posts(id) ON DELETE CASCADE,
+    model_used      TEXT NOT NULL,
+    visual_hooks    TEXT[],
+    pain_points     TEXT[],
+    trend_score     NUMERIC(4,2),
+    summary         TEXT,
+    suggested_content TEXT,
+    ai_flagged      BOOLEAN NOT NULL DEFAULT TRUE,
+    audit_status    TEXT NOT NULL DEFAULT 'pending',
+    audit_note      TEXT,
+    analyzed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(post_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_trend_score ON post_analysis(trend_score DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_audit_status ON post_analysis(audit_status);
 
 -- ── Digest log ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS digest_log (
@@ -37,7 +56,7 @@ CREATE TABLE IF NOT EXISTS digest_log (
 -- ── Scheduled content queue ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS content_queue (
     id              BIGSERIAL PRIMARY KEY,
-    analysis_id     BIGINT,
+    analysis_id     BIGINT REFERENCES post_analysis(id),
     platform_target TEXT NOT NULL,
     draft_text      TEXT NOT NULL,
     ai_flagged      BOOLEAN NOT NULL DEFAULT TRUE,
