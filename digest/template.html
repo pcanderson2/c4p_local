@@ -91,6 +91,33 @@
   {% endif %}
 </div>
 
+<!-- ── Tech Creator Music ───────────────────────────────────────────── -->
+<div class="section">
+  <div class="section-header">
+    <span class="icon">🎬</span>
+    <h2>Music Used by Top Tech Creators</h2>
+  </div>
+  {% if creator_music %}
+    {% for channel, credits in creator_music.items() %}
+    <div class="genre-block">
+      <div class="genre-label">{{ channel }}</div>
+      {% for c in credits %}
+      <div class="track">
+        <span>
+          <span class="artist">{{ c.credit }}</span>
+          {% if c.video_url %}
+          &mdash; <a href="{{ c.video_url }}" style="color:#6b7280;font-size:12px">{{ c.video_title[:60] if c.video_title else 'view video' }}</a>
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty">No music credits found yet — the scraper is extracting from recent videos.</div>
+  {% endif %}
+</div>
+
 <!-- ── Last.fm Genre Charts ─────────────────────────────────────────── -->
 <div class="section">
   <div class="section-header">
@@ -163,3 +190,4 @@
 
 </body>
 </html>
+
