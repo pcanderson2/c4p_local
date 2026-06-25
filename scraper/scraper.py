@@ -57,6 +57,8 @@ YOUTUBE_TECH_CREATOR_CHANNELS = [
     ("UC0vBXGSyV14uvJ4hECDOl0Q", "Techquickie"),
     ("UC6H07z6zAwbHRl4Lbl0GSsw", "Hardware Unboxed"),
     ("UCPvRdfUooqCf0zPOYvbBzVA", "MrYeester"),
+    ("UC6Jxh95N32m1JvKG_-fQ6QQ", "OzTalksHW"),
+    ("UCu0OODzJsXVzRyA8W1qD8nA", "Deadrig Gaming"),
 ]
 
 import re as _re
@@ -571,6 +573,7 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
 
 
