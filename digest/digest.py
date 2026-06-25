@@ -95,13 +95,11 @@ def fetch_lastfm_by_genre(cur, limit=5):
     # Group by genre
     genres = {}
     for r in rows:
-        g = r[0]
+        g = r["genre"]
         if g not in genres:
             genres[g] = []
         if len(genres[g]) < limit:
-            genres[g].append(dict(zip(
-                ["genre", "artist", "title", "url", "playcount", "rank"], r
-            )))
+            genres[g].append(dict(r))
     return genres
 
 
@@ -124,11 +122,11 @@ def fetch_billboard(cur, limit=5):
     rows = cur.fetchall()
     charts = {}
     for r in rows:
-        chart = r[0]
+        chart = r["chart"]
         if chart not in charts:
             charts[chart] = []
         if len(charts[chart]) < limit:
-            charts[chart].append({"chart": r[0], "title": r[1], "url": r[2]})
+            charts[chart].append({"chart": r["chart"], "title": r["title"], "url": r["post_url"]})
     return charts
 
 
@@ -254,4 +252,5 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
