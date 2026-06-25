@@ -1,8 +1,6 @@
-version: "3.9"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # C4P Social Media Monitor — fully self-hosted stack
-# Services: postgres | ollama | scraper | analyzer | digest | postiz
+# Services: postgres | ollama | scraper | analyzer | digest | viewer
 # ─────────────────────────────────────────────────────────────────────────────
 
 x-restart: &restart
@@ -16,7 +14,6 @@ volumes:
   postgres_data:
   ollama_data:
   scrape_cache:
-  postiz_uploads:
 
 services:
 
@@ -45,10 +42,8 @@ services:
     networks: [c4p_net]
     volumes:
       - ollama_data:/root/.ollama
-    # Expose on host so you can also query via curl for debugging
     ports:
       - "11434:11434"
-    # GPU passthrough — remove deploy block if no NVIDIA GPU
     deploy:
       resources:
         reservations:
@@ -134,23 +129,17 @@ services:
       DIGEST_TO: ${DIGEST_TO}
       DIGEST_CRON: ${DIGEST_CRON:-0 8 * * 1,3,5}
 
-  # ── Postiz (scheduling dashboard) ───────────────────────────────────────────
-  postiz:
-    image: ghcr.io/gitroomhq/postiz-app:latest
+  # ── Web Viewer (read-only dashboard) ────────────────────────────────────────
+  viewer:
+    build:
+      context: ./viewer
+      dockerfile: Dockerfile
     <<: *restart
     networks: [c4p_net]
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "5000:5000"
-      - "3000:3000"
+      - "5000:8080"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      JWT_SECRET: ${POSTIZ_SECRET}
-      FRONTEND_URL: ${POSTIZ_FRONTEND_URL:-http://localhost:5000}
-      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:3000}
-      STORAGE_PROVIDER: local
-      UPLOAD_DIRECTORY: /uploads
-    volumes:
-      - postiz_uploads:/uploads
