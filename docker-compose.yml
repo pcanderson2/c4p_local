@@ -37,7 +37,7 @@ services:
 
   # ── Ollama (DeepSeek R1) ────────────────────────────────────────────────────
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.3.14
     <<: *restart
     networks: [c4p_net]
     volumes:
@@ -60,7 +60,7 @@ services:
 
   # Pull the model on first boot
   ollama-init:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.3.14
     networks: [c4p_net]
     depends_on:
       ollama:
@@ -144,3 +144,4 @@ services:
       - "5000:8080"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+
