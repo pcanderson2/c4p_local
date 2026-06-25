@@ -457,13 +457,13 @@ def scrape_tech_creator_music():
             if not video_ids:
                 continue
 
-            # Get full descriptions
+            # Get full descriptions + topicDetails + tags
             vr = requests.get(
                 "https://www.googleapis.com/youtube/v3/videos",
                 params={
                     "key": YT_API_KEY,
                     "id": ",".join(video_ids),
-                    "part": "snippet",
+                    "part": "snippet,topicDetails",
                 },
                 timeout=15,
             )
@@ -484,9 +484,50 @@ def scrape_tech_creator_music():
                 video_url = f"https://www.youtube.com/watch?v={vid_id}"
                 description = snippet.get("description", "")
                 video_title = snippet.get("title", "")
+                tags = snippet.get("tags", [])
 
+                # 1. Extract music from description text
                 music_credits = extract_music_from_description(description, channel_name, video_title, video_url)
+
+                # 2. Mine topicDetails — YouTube's Content ID music metadata
+                # topicCategories contains Wikipedia URLs like /wiki/Music or /wiki/Rhythm_and_blues
+                topic_details = v.get("topicDetails", {})
+                topic_cats = topic_details.get("topicCategories", [])
+                music_topics = [
+                    t.split("/wiki/")[-1].replace("_", " ")
+                    for t in topic_cats
+                    if "/wiki/" in t and t.split("/wiki/")[-1].lower() not in
+                    ("music", "entertainment", "lifestyle", "society", "knowledge")
+                ]
+                for topic in music_topics:
+                    music_credits.append({
+                        "credit": topic,
+                        "source_channel": channel_name,
+                        "video_title": video_title,
+                        "video_url": video_url,
+                        "source": "topic_metadata",
+                    })
+
+                # 3. Mine tags for music keywords
+                music_tag_patterns = _re.compile(
+                    r'(?:music|song|track|audio|soundtrack|beat|instrumental|lofi|lo-fi|bgm)', _re.IGNORECASE
+                )
+                for tag in tags:
+                    if music_tag_patterns.search(tag) and len(tag) > 3:
+                        music_credits.append({
+                            "credit": tag,
+                            "source_channel": channel_name,
+                            "video_title": video_title,
+                            "video_url": video_url,
+                            "source": "tag_metadata",
+                        })
+
+                seen_credits = set()
                 for credit in music_credits:
+                    key = credit["credit"].lower().strip()
+                    if key in seen_credits:
+                        continue
+                    seen_credits.add(key)
                     url = f"music-credit:{vid_id}:{hash(credit['credit']) & 0xFFFFFF}"
                     data = {
                         "caption": credit["credit"],
@@ -496,12 +537,14 @@ def scrape_tech_creator_music():
                         "video_url": video_url,
                         "hashtags": ["music", "tech-creator", channel_name.lower().replace(" ", "-")],
                         "content_type": "music-credit",
+                        "credit_source": credit.get("source", "description"),
                     }
                     with conn:
                         with conn.cursor() as cur:
                             pid = upsert_post(cur, "yt-creator-music", channel_name, url, data)
                             if pid:
-                                log.info("  Music credit [%s]: %s", channel_name, credit["credit"][:60])
+                                log.info("  Music credit [%s] (%s): %s", channel_name,
+                                         data["credit_source"], credit["credit"][:60])
             time.sleep(1)
         except Exception as e:
             log.warning("Tech creator music error for %s: %s", channel_name, e)
@@ -527,6 +570,7 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
 
 
