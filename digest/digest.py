@@ -1,6 +1,12 @@
 """
 C4P Email Digest — MWF (Mon/Wed/Fri) 8 AM
-Queries the top 5 mission-aligned trends from the past 7 days and emails them.
+Sends a sectioned email separated by source and genre.
+Sections:
+  - YouTube Tech & Education (analyzed posts)
+  - YouTube Music Trending
+  - Last.fm Genre Charts
+  - Billboard Charts
+  - Tech & Education News (RSS)
 """
 import logging
 import os
@@ -31,54 +37,154 @@ DIGEST_CRON   = os.environ.get("DIGEST_CRON", "0 8 * * 1,3,5")
 jinja = Environment(loader=FileSystemLoader("/app"))
 
 
-def fetch_top_trends(limit: int = 5) -> list[dict]:
+def fetch_section(cur, platform, limit=8, genre=None):
+    """Fetch top analyzed posts for a given platform (and optional genre)."""
+    genre_filter = "AND sp.raw_json->>'genre' = %s" if genre else ""
+    params = [platform] + ([genre] if genre else []) + [limit]
+    cur.execute(
+        f"""
+        SELECT
+            sp.platform,
+            sp.source_account,
+            sp.post_url,
+            sp.caption,
+            sp.views,
+            sp.likes,
+            sp.raw_json->>'title' AS title,
+            sp.raw_json->>'genre' AS genre,
+            sp.raw_json->>'artist' AS artist,
+            pa.trend_score,
+            pa.summary,
+            pa.suggested_content,
+            pa.audit_status,
+            pa.visual_hooks,
+            pa.pain_points
+        FROM scraped_posts sp
+        LEFT JOIN post_analysis pa ON pa.post_id = sp.id
+        WHERE sp.platform = %s
+          AND sp.scraped_at >= NOW() - INTERVAL '7 days'
+          {genre_filter}
+          AND (pa.audit_status IS NULL OR pa.audit_status != 'rejected')
+        ORDER BY COALESCE(pa.trend_score, 0) DESC, sp.views DESC NULLS LAST
+        LIMIT %s
+        """,
+        params,
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def fetch_lastfm_by_genre(cur, limit=5):
+    """Fetch Last.fm top tracks grouped by genre."""
+    cur.execute(
+        """
+        SELECT
+            sp.source_account AS genre,
+            sp.raw_json->>'artist' AS artist,
+            sp.raw_json->>'title' AS title,
+            sp.post_url,
+            sp.views AS playcount,
+            sp.raw_json->>'rank' AS rank
+        FROM scraped_posts sp
+        WHERE sp.platform = 'lastfm'
+          AND sp.scraped_at >= NOW() - INTERVAL '7 days'
+        ORDER BY sp.source_account, (sp.raw_json->>'rank')::int NULLS LAST
+        LIMIT 100
+        """,
+    )
+    rows = cur.fetchall()
+    # Group by genre
+    genres = {}
+    for r in rows:
+        g = r[0]
+        if g not in genres:
+            genres[g] = []
+        if len(genres[g]) < limit:
+            genres[g].append(dict(zip(
+                ["genre", "artist", "title", "url", "playcount", "rank"], r
+            )))
+    return genres
+
+
+def fetch_billboard(cur, limit=5):
+    """Fetch Billboard entries grouped by genre."""
+    cur.execute(
+        """
+        SELECT
+            sp.source_account AS chart,
+            sp.raw_json->>'title' AS title,
+            sp.post_url,
+            sp.scraped_at
+        FROM scraped_posts sp
+        WHERE sp.platform = 'billboard'
+          AND sp.scraped_at >= NOW() - INTERVAL '7 days'
+        ORDER BY sp.source_account, sp.scraped_at DESC
+        LIMIT 100
+        """,
+    )
+    rows = cur.fetchall()
+    charts = {}
+    for r in rows:
+        chart = r[0]
+        if chart not in charts:
+            charts[chart] = []
+        if len(charts[chart]) < limit:
+            charts[chart].append({"chart": r[0], "title": r[1], "url": r[2]})
+    return charts
+
+
+def fetch_rss(cur, limit=5):
+    """Fetch top RSS articles."""
+    cur.execute(
+        """
+        SELECT
+            sp.source_account,
+            sp.raw_json->>'title' AS title,
+            sp.post_url,
+            sp.raw_json->>'source' AS source_name,
+            pa.trend_score,
+            pa.summary
+        FROM scraped_posts sp
+        LEFT JOIN post_analysis pa ON pa.post_id = sp.id
+        WHERE sp.platform = 'rss'
+          AND sp.scraped_at >= NOW() - INTERVAL '7 days'
+          AND (pa.audit_status IS NULL OR pa.audit_status != 'rejected')
+        ORDER BY COALESCE(pa.trend_score, 0) DESC, sp.scraped_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def fetch_all_sections():
     conn = psycopg2.connect(DATABASE_URL)
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT
-                    sp.platform,
-                    sp.source_account,
-                    sp.post_url,
-                    pa.visual_hooks,
-                    pa.pain_points,
-                    pa.trend_score,
-                    pa.summary,
-                    pa.suggested_content,
-                    pa.model_used,
-                    pa.audit_status
-                FROM post_analysis pa
-                JOIN scraped_posts sp ON sp.id = pa.post_id
-                WHERE pa.analyzed_at >= NOW() - INTERVAL '7 days'
-                  AND pa.trend_score IS NOT NULL
-                  AND pa.audit_status != 'rejected'
-                ORDER BY pa.trend_score DESC
-                LIMIT %s
-                """,
-                (limit,),
-            )
-            return [dict(r) for r in cur.fetchall()]
+        with conn.cursor() as cur:
+            return {
+                "yt_tech": fetch_section(cur, "youtube", limit=8),
+                "yt_music": fetch_section(cur, "youtube-music", limit=10),
+                "lastfm": fetch_lastfm_by_genre(cur, limit=5),
+                "billboard": fetch_billboard(cur, limit=5),
+                "rss": fetch_rss(cur, limit=8),
+            }
     finally:
         conn.close()
 
 
-def render_email(trends: list[dict], model: str) -> str:
+def render_email(sections: dict) -> str:
     template = jinja.get_template("template.html")
     return template.render(
         date=datetime.now(timezone.utc).strftime("%A, %B %-d %Y"),
-        trends=trends,
-        model=model,
+        **sections,
     )
 
 
-def send_email(html_body: str, trends: list[dict]) -> bool:
+def send_email(html_body: str, subject: str) -> bool:
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"C4P Trend Digest — {datetime.now(timezone.utc).strftime('%b %-d')}: Top {len(trends)} Digital Literacy Trends"
-    msg["From"]    = DIGEST_FROM
-    msg["To"]      = ", ".join(DIGEST_TO)
+    msg["Subject"] = subject
+    msg["From"] = DIGEST_FROM
+    msg["To"] = ", ".join(DIGEST_TO)
     msg.attach(MIMEText(html_body, "html"))
-
     try:
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.ehlo()
@@ -92,25 +198,17 @@ def send_email(html_body: str, trends: list[dict]) -> bool:
         return False
 
 
-def log_digest(trends: list[dict], html_body: str, success: bool, error: str | None = None):
+def log_digest(html_body: str, success: bool, error: str = None):
     conn = psycopg2.connect(DATABASE_URL)
     try:
-        post_ids = []
-        for t in trends:
-            # post_url is unique — look up the id
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM scraped_posts WHERE post_url = %s", (t.get("post_url"),))
-                row = cur.fetchone()
-                if row:
-                    post_ids.append(row[0])
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO digest_log (recipients, top_post_ids, email_body, success, error_msg)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO digest_log (recipients, email_body, success, error_msg)
+                    VALUES (%s, %s, %s, %s)
                     """,
-                    (DIGEST_TO, post_ids, html_body, success, error),
+                    (DIGEST_TO, html_body, success, error),
                 )
     finally:
         conn.close()
@@ -118,19 +216,25 @@ def log_digest(trends: list[dict], html_body: str, success: bool, error: str | N
 
 def run_digest():
     log.info("Running digest...")
-    trends = fetch_top_trends()
-    if not trends:
-        log.info("No analyzed trends found — skipping digest.")
+    sections = fetch_all_sections()
+    total = (
+        len(sections["yt_tech"]) + len(sections["yt_music"]) +
+        sum(len(v) for v in sections["lastfm"].values()) +
+        sum(len(v) for v in sections["billboard"].values()) +
+        len(sections["rss"])
+    )
+    if total == 0:
+        log.info("No content found — skipping digest.")
         return
 
-    model = trends[0].get("model_used", "unknown") if trends else "unknown"
-    html  = render_email(trends, model)
-    ok    = send_email(html, trends)
-    log_digest(trends, html, ok)
+    date_str = datetime.now(timezone.utc).strftime("%b %-d")
+    subject = f"C4P Digest — {date_str}: Tech, Education & Music Trends"
+    html = render_email(sections)
+    ok = send_email(html, subject)
+    log_digest(html, ok)
 
 
 def schedule_from_cron(cron_expr: str):
-    """Convert a cron expression to a schedule job using croniter."""
     base = datetime.now(timezone.utc)
     cron = croniter(cron_expr, base)
 
@@ -139,7 +243,7 @@ def schedule_from_cron(cron_expr: str):
         next_run = cron.get_next(datetime).replace(tzinfo=timezone.utc, second=0, microsecond=0)
         if now >= next_run:
             run_digest()
-            cron.get_next()  # advance iterator
+            cron.get_next()
 
     schedule.every(60).seconds.do(_tick)
 
