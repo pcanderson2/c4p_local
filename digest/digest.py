@@ -183,6 +183,30 @@ def fetch_creator_music(cur, limit=20):
     return [dict(r) for r in cur.fetchall()]
 
 
+def fetch_rss(cur, limit=8):
+    """Fetch top RSS articles."""
+    cur.execute(
+        """
+        SELECT
+            sp.source_account,
+            sp.raw_json->>'title' AS title,
+            sp.post_url,
+            sp.raw_json->>'source' AS source_name,
+            pa.trend_score,
+            pa.summary
+        FROM scraped_posts sp
+        LEFT JOIN post_analysis pa ON pa.post_id = sp.id
+        WHERE sp.platform = 'rss'
+          AND sp.scraped_at >= NOW() - INTERVAL '7 days'
+          AND (pa.audit_status IS NULL OR pa.audit_status != 'rejected')
+        ORDER BY COALESCE(pa.trend_score, 0) DESC, sp.scraped_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
 def fetch_all_sections():
     conn = psycopg2.connect(DATABASE_URL)
     try:
@@ -283,6 +307,7 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
 
 
