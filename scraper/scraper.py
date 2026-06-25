@@ -56,6 +56,7 @@ YOUTUBE_TECH_CREATOR_CHANNELS = [
     ("UCfCKUsN2HmXfjiOJc7z7xBw", "Bitwit"),
     ("UC0vBXGSyV14uvJ4hECDOl0Q", "Techquickie"),
     ("UC6H07z6zAwbHRl4Lbl0GSsw", "Hardware Unboxed"),
+    ("UCPvRdfUooqCf0zPOYvbBzVA", "MrYeester"),
 ]
 
 import re as _re
@@ -570,6 +571,7 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
 
 
