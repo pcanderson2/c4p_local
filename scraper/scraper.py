@@ -43,6 +43,51 @@ YOUTUBE_TECH_CHANNELS = [
     ("UCTD_vxDn55KZCBiSLMYbgmQ", "Edutopia"),
 ]
 
+# ── Top tech creator channels (for music extraction) ─────────────────────────
+YOUTUBE_TECH_CREATOR_CHANNELS = [
+    ("UCXuqSBlHAE6Xw-yeJA0Tunw", "Linus Tech Tips"),
+    ("UCeeFfhMcJa1kjtfZANec4XQ", "JayzTwoCents"),
+    ("UChIs72whgZI9w6d6FhwGGHA", "Gamers Nexus"),
+    ("UCBcRF18a7Qf58cCRy5xuWwQ", "MKBHD"),
+    ("UCVYamHliCI9rw1tHR1xbkfw", "Dave2D"),
+    ("UCddiUEpeqJcYeBxX1IVBKvQ", "ShortCircuit"),
+    ("UCTzLRZUgelatKZ4nyIKcAbg", "Unbox Therapy"),
+    ("UCTGnzFNMFI-8QZqcFNyhrXQ", "Paul's Hardware"),
+    ("UCfCKUsN2HmXfjiOJc7z7xBw", "Bitwit"),
+    ("UC0vBXGSyV14uvJ4hECDOl0Q", "Techquickie"),
+    ("UC6H07z6zAwbHRl4Lbl0GSsw", "Hardware Unboxed"),
+]
+
+import re as _re
+
+# Patterns to extract music credits from video descriptions
+MUSIC_CREDIT_PATTERNS = [
+    _re.compile(r'(?:music|song|track|bg music|background music|intro music|outro music)[:\s]+([^\n]{5,100})', _re.IGNORECASE),
+    _re.compile(r'([^:\n]{3,50})\s*[-–]\s*([^:\n]{3,50})\s*(?:\(no copyright|royalty free|free music)', _re.IGNORECASE),
+    _re.compile(r'(?:epidemic sound|artlist|musicbed|pretzel|soundstripe)[^\n]*', _re.IGNORECASE),
+    _re.compile(r'(?:provided by|music by|composed by)[:\s]+([^\n]{5,100})', _re.IGNORECASE),
+]
+
+def extract_music_from_description(description: str, channel_name: str, video_title: str, video_url: str) -> list:
+    """Extract music credits from a video description."""
+    results = []
+    if not description:
+        return results
+    seen = set()
+    for pattern in MUSIC_CREDIT_PATTERNS:
+        for match in pattern.findall(description):
+            credit = match if isinstance(match, str) else " - ".join(match)
+            credit = credit.strip()
+            if credit and len(credit) > 4 and credit not in seen:
+                seen.add(credit)
+                results.append({
+                    "credit": credit,
+                    "source_channel": channel_name,
+                    "video_title": video_title,
+                    "video_url": video_url,
+                })
+    return results
+
 # ── YouTube music trending playlist ID ───────────────────────────────────────
 YT_MUSIC_TRENDING_PLAYLIST = "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI"
 
@@ -375,11 +420,93 @@ def scrape_tech_rss():
     conn.close()
 
 
+# ── Tech Creator Music Extraction ────────────────────────────────────────────
+
+def scrape_tech_creator_music():
+    """Fetch recent videos from top tech creators and extract music credits from descriptions."""
+    if not YT_API_KEY:
+        log.warning("YOUTUBE_API_KEY not set — skipping tech creator music")
+        return
+    log.info("YouTube: extracting music from tech creator videos")
+    conn = get_conn()
+    for channel_id, channel_name in YOUTUBE_TECH_CREATOR_CHANNELS:
+        try:
+            r = requests.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={
+                    "key": YT_API_KEY,
+                    "channelId": channel_id,
+                    "part": "snippet",
+                    "order": "date",
+                    "maxResults": 5,
+                    "type": "video",
+                },
+                timeout=15,
+            )
+            r.raise_for_status()
+            items = r.json().get("items", [])
+
+            # Get full descriptions via videos endpoint
+            video_ids = [i["id"]["videoId"] for i in items if "videoId" in i.get("id", {})]
+            if not video_ids:
+                continue
+
+            vr = requests.get(
+                "https://www.googleapis.com/youtube/v3/videos",
+                params={
+                    "key": YT_API_KEY,
+                    "id": ",".join(video_ids),
+                    "part": "snippet",
+                },
+                timeout=15,
+            )
+            vr.raise_for_status()
+
+            for v in vr.json().get("items", []):
+                snippet = v["snippet"]
+                published_at = snippet.get("publishedAt", "")
+                if published_at:
+                    try:
+                        pub_dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                        if datetime.now(timezone.utc) - pub_dt > timedelta(days=MAX_AGE_DAYS):
+                            continue
+                    except Exception:
+                        pass
+
+                vid_id = v["id"]
+                video_url = f"https://www.youtube.com/watch?v={vid_id}"
+                description = snippet.get("description", "")
+                video_title = snippet.get("title", "")
+
+                music_credits = extract_music_from_description(description, channel_name, video_title, video_url)
+                for credit in music_credits:
+                    url = f"music-credit:{vid_id}:{hash(credit['credit']) & 0xFFFFFF}"
+                    data = {
+                        "caption": f"{credit['credit']}",
+                        "title": credit["credit"],
+                        "source_channel": channel_name,
+                        "video_title": video_title,
+                        "video_url": video_url,
+                        "hashtags": ["music", "tech-creator", channel_name.lower().replace(" ", "-")],
+                        "content_type": "music-credit",
+                    }
+                    with conn:
+                        with conn.cursor() as cur:
+                            pid = upsert_post(cur, "yt-creator-music", channel_name, url, data)
+                            if pid:
+                                log.info("  Music credit [%s]: %s", channel_name, credit["credit"][:60])
+            time.sleep(1)
+        except Exception as e:
+            log.warning("Tech creator music error for %s: %s", channel_name, e)
+    conn.close()
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run_scrape():
     log.info("=== Scrape cycle starting ===")
     scrape_youtube()
+    scrape_tech_creator_music()
     scrape_lastfm()
     scrape_billboard()
     scrape_tech_rss()
@@ -393,4 +520,5 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
