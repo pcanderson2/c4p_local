@@ -14,7 +14,9 @@ import requests
 import feedparser
 import psycopg2
 from psycopg2.extras import Json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+MAX_AGE_DAYS = 10  # skip content older than this
 
 import schedule
 
@@ -166,6 +168,17 @@ def yt_search_channel(channel_id, channel_name, max_results=10):
             stat = stats.get(vid_id, {}).get("statistics", {})
             duration = stats.get(vid_id, {}).get("contentDetails", {}).get("duration", "")
             url = f"https://www.youtube.com/watch?v={vid_id}"
+            # Skip videos older than MAX_AGE_DAYS
+            published_at = snippet.get("publishedAt", "")
+            if published_at:
+                try:
+                    pub_dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                    if datetime.now(timezone.utc) - pub_dt > timedelta(days=MAX_AGE_DAYS):
+                        log.debug("  Skipping old video: %s", snippet.get("title", "")[:60])
+                        continue
+                except Exception:
+                    pass
+
             data = {
                 "caption": snippet.get("title") + "\n" + snippet.get("description", "")[:300],
                 "title": snippet.get("title"),
@@ -175,7 +188,7 @@ def yt_search_channel(channel_id, channel_name, max_results=10):
                 "comments": int(stat.get("commentCount", 0)) or None,
                 "views": int(stat.get("viewCount", 0)) or None,
                 "duration": duration,
-                "published_at": snippet.get("publishedAt"),
+                "published_at": published_at,
                 "channel": channel_name,
                 "content_type": "short" if "PT" in duration and "M" not in duration else "video",
             }
@@ -213,6 +226,17 @@ def yt_music_trending(max_results=25):
             vid_id = item["id"]
             snippet = item["snippet"]
             stat = item.get("statistics", {})
+
+            # Skip videos older than MAX_AGE_DAYS
+            published_at = snippet.get("publishedAt", "")
+            if published_at:
+                try:
+                    pub_dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                    if datetime.now(timezone.utc) - pub_dt > timedelta(days=MAX_AGE_DAYS):
+                        continue
+                except Exception:
+                    pass
+
             url = f"https://www.youtube.com/watch?v={vid_id}"
             data = {
                 "caption": snippet.get("title"),
@@ -369,3 +393,4 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
