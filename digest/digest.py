@@ -130,7 +130,36 @@ def fetch_billboard(cur, limit=5):
     return charts
 
 
-def fetch_rss(cur, limit=5):
+def fetch_creator_music(cur, limit=20):
+    """Fetch music credits extracted from tech creator videos."""
+    cur.execute(
+        """
+        SELECT
+            sp.source_account AS channel,
+            sp.raw_json->>'title' AS credit,
+            sp.raw_json->>'video_title' AS video_title,
+            sp.raw_json->>'video_url' AS video_url,
+            sp.scraped_at
+        FROM scraped_posts sp
+        WHERE sp.platform = 'yt-creator-music'
+          AND sp.scraped_at >= NOW() - INTERVAL '7 days'
+        ORDER BY sp.source_account, sp.scraped_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    rows = cur.fetchall()
+    # Group by channel
+    channels = {}
+    for r in rows:
+        ch = r["channel"]
+        if ch not in channels:
+            channels[ch] = []
+        channels[ch].append(dict(r))
+    return channels
+
+
+
     """Fetch top RSS articles."""
     cur.execute(
         """
@@ -161,6 +190,7 @@ def fetch_all_sections():
             return {
                 "yt_tech": fetch_section(cur, "youtube", limit=8),
                 "yt_music": fetch_section(cur, "youtube-music", limit=10),
+                "creator_music": fetch_creator_music(cur, limit=30),
                 "lastfm": fetch_lastfm_by_genre(cur, limit=5),
                 "billboard": fetch_billboard(cur, limit=5),
                 "rss": fetch_rss(cur, limit=8),
@@ -217,6 +247,7 @@ def run_digest():
     sections = fetch_all_sections()
     total = (
         len(sections["yt_tech"]) + len(sections["yt_music"]) +
+        sum(len(v) for v in sections["creator_music"].values()) +
         sum(len(v) for v in sections["lastfm"].values()) +
         sum(len(v) for v in sections["billboard"].values()) +
         len(sections["rss"])
@@ -252,5 +283,6 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
 
