@@ -423,7 +423,9 @@ def scrape_tech_rss():
 # ── Tech Creator Music Extraction ────────────────────────────────────────────
 
 def scrape_tech_creator_music():
-    """Fetch recent videos from top tech creators and extract music credits from descriptions."""
+    """Fetch recent videos from top tech creators and extract music credits from descriptions.
+    Uses the activities endpoint (1 unit/call) instead of search (100 units/call).
+    """
     if not YT_API_KEY:
         log.warning("YOUTUBE_API_KEY not set — skipping tech creator music")
         return
@@ -431,26 +433,31 @@ def scrape_tech_creator_music():
     conn = get_conn()
     for channel_id, channel_name in YOUTUBE_TECH_CREATOR_CHANNELS:
         try:
+            # activities endpoint costs 1 unit vs search which costs 100
             r = requests.get(
-                "https://www.googleapis.com/youtube/v3/search",
+                "https://www.googleapis.com/youtube/v3/activities",
                 params={
                     "key": YT_API_KEY,
                     "channelId": channel_id,
-                    "part": "snippet",
-                    "order": "date",
+                    "part": "snippet,contentDetails",
                     "maxResults": 5,
-                    "type": "video",
                 },
                 timeout=15,
             )
             r.raise_for_status()
             items = r.json().get("items", [])
 
-            # Get full descriptions via videos endpoint
-            video_ids = [i["id"]["videoId"] for i in items if "videoId" in i.get("id", {})]
+            video_ids = []
+            for item in items:
+                upload = item.get("contentDetails", {}).get("upload", {})
+                vid_id = upload.get("videoId")
+                if vid_id:
+                    video_ids.append(vid_id)
+
             if not video_ids:
                 continue
 
+            # Get full descriptions
             vr = requests.get(
                 "https://www.googleapis.com/youtube/v3/videos",
                 params={
@@ -482,7 +489,7 @@ def scrape_tech_creator_music():
                 for credit in music_credits:
                     url = f"music-credit:{vid_id}:{hash(credit['credit']) & 0xFFFFFF}"
                     data = {
-                        "caption": f"{credit['credit']}",
+                        "caption": credit["credit"],
                         "title": credit["credit"],
                         "source_channel": channel_name,
                         "video_title": video_title,
@@ -520,5 +527,6 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(30)
+
 
 
